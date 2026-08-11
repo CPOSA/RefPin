@@ -294,40 +294,61 @@ def _grab_with_mss(rect: QRect) -> QPixmap:
     return pixmap
 
 
-def _match_monitor(monitors, geo: QRect) -> tuple[dict, float]:
+def _match_monitor(
+    monitors, geo: QRect, screens: list[QRect] | None = None
+) -> tuple[dict, float]:
     """找出 Qt 的这块屏幕对应 mss 的哪个 monitor，顺带算出缩放比。
+
+    ``screens`` 是所有 Qt 屏幕的 geometry 列表，默认取当前实际的屏幕。
+    显式传入主要供测试模拟混合 DPI 布局用 —— 那种场景没法靠真机复现。
 
     mss 和 Qt 各自编号屏幕，顺序不保证一致，所以按「长宽比 + 位置」配对：
     同一块屏幕，mss 尺寸 ÷ Qt 尺寸在横竖两个方向上应该得到同一个缩放比。
     配不上就退回 monitors[0]（整个虚拟桌面），至少不会崩。
     """
     virtual = monitors[0]
-    origin = _qt_virtual_origin()
-    if geo.width() <= 0 or geo.height() <= 0:
+    physical = monitors[1:]
+    if geo.width() <= 0 or geo.height() <= 0 or not physical:
         return virtual, 1.0
 
+    if screens is None:
+        screens = [screen.geometry() for screen in QGuiApplication.screens()]
+
+    # 主路径：屏幕数一致时，两边都按「左上 → 右下」排序，取相同名次配对。
+    #
+    # 依据是两个坐标系描述的是同一套物理排布，相对顺序必然一致。
+    # 全程不做任何跨屏坐标换算，所以混合 DPI 也不会错。
+    #
+    # 反面教材（本项目一度用过的写法）：
+    #     want_left = 虚拟桌面left + (本屏Qt_x - 虚拟原点x) * 本屏缩放比
+    # 它假设从原点走到本屏这一路的缩放比是统一的。混合 DPI 下不成立 ——
+    # 主屏 1920×1080 缩放 150%（Qt 逻辑 1280×720）、副屏 1920×1080 缩放
+    # 100% 摆右边时，副屏 Qt 逻辑 x=1280、本屏缩放比 1.0，推算出物理
+    # left=1280，实际是 1920，配对直接失败。
+    if len(screens) == len(physical):
+        ranked_screens = sorted(screens, key=lambda g: (g.x(), g.y()))
+        ranked_monitors = sorted(physical, key=lambda m: (m["left"], m["top"]))
+        for rank, candidate in enumerate(ranked_screens):
+            if candidate != geo:
+                continue
+            monitor = ranked_monitors[rank]
+            scale_x = monitor["width"] / geo.width()
+            scale_y = monitor["height"] / geo.height()
+            # 长宽比对不上说明这个配对不可信（屏幕数虽然一样，但对应关系乱了），
+            # 别硬用，交给下面按尺寸挑
+            if abs(scale_x - scale_y) <= 0.02:
+                return monitor, (scale_x + scale_y) / 2
+            break
+
+    # 兜底：屏幕数对不上（热插拔、镜像等）时，按长宽比挑最接近的一块
     best, best_error = None, None
-    for monitor in monitors[1:]:
+    for monitor in physical:
         scale_x = monitor["width"] / geo.width()
         scale_y = monitor["height"] / geo.height()
-        if abs(scale_x - scale_y) > 0.02:
-            continue  # 长宽比对不上，不是同一块屏
-        scale = (scale_x + scale_y) / 2
-        want_left = virtual["left"] + (geo.x() - origin.x()) * scale
-        want_top = virtual["top"] + (geo.y() - origin.y()) * scale
-        error = abs(monitor["left"] - want_left) + abs(monitor["top"] - want_top)
+        error = abs(scale_x - scale_y)
+        if error > 0.02:
+            continue
         if best_error is None or error < best_error:
-            best, best_error = (monitor, scale), error
+            best, best_error = (monitor, (scale_x + scale_y) / 2), error
 
     return best if best is not None else (virtual, 1.0)
-
-
-def _qt_virtual_origin() -> QPoint:
-    """所有屏幕拼起来的左上角，逻辑坐标。副屏摆在主屏左边时会是负数。"""
-    screens = QGuiApplication.screens()
-    if not screens:
-        return QPoint(0, 0)
-    return QPoint(
-        min(s.geometry().x() for s in screens),
-        min(s.geometry().y() for s in screens),
-    )

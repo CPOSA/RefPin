@@ -49,6 +49,94 @@ def test_macos_secondary_screen_keeps_global_coordinates():
         assert _qt_capture_rect(selection, screen, "darwin") == selection
 
 
+# ---------- 混合 DPI 下的屏幕配对 ----------
+#
+# 这些用例直接构造 mss 的 monitors 数据，不需要真的接多块不同缩放的显示器。
+# Windows 上主屏 150%、副屏 100% 是极常见的组合，而这正是老算法出错的场景。
+
+
+def _monitors(*boxes):
+    """按 mss 的格式造 monitors 列表，第 0 个是整个虚拟桌面。"""
+    left = min(b[0] for b in boxes)
+    top = min(b[1] for b in boxes)
+    right = max(b[0] + b[2] for b in boxes)
+    bottom = max(b[1] + b[3] for b in boxes)
+    virtual = {"left": left, "top": top, "width": right - left, "height": bottom - top}
+    return [virtual] + [
+        {"left": x, "top": y, "width": w, "height": h} for x, y, w, h in boxes
+    ]
+
+
+def test_mixed_dpi_secondary_screen_matches_correctly():
+    """主屏 150% + 副屏 100%，副屏必须配到正确的 monitor 和缩放比。
+
+    老算法在这里会失败：它用「Qt 全局坐标 × 本屏缩放比」推算物理位置，
+    副屏 Qt 逻辑 x=1280、本屏缩放比 1.0，推出 left=1280，实际是 1920。
+    """
+    from pinref.overlay import _match_monitor
+
+    # 物理：主屏 1920x1080 @(0,0)，副屏 1920x1080 @(1920,0)
+    monitors = _monitors((0, 0, 1920, 1080), (1920, 0, 1920, 1080))
+
+    # 主屏缩放 150% -> Qt 逻辑 1280x720 @(0,0)
+    screens = [QRect(0, 0, 1280, 720), QRect(1280, 0, 1920, 1080)]
+
+    primary, primary_scale = _match_monitor(monitors, screens[0], screens)
+    assert primary["left"] == 0, f"主屏配错了: {primary}"
+    assert abs(primary_scale - 1.5) < 0.01, f"主屏缩放比应为 1.5，得到 {primary_scale}"
+
+    # 副屏缩放 100% -> Qt 逻辑 1920x1080 @(1280,0)
+    second, second_scale = _match_monitor(monitors, screens[1], screens)
+    assert second["left"] == 1920, f"副屏配错了: {second}"
+    assert abs(second_scale - 1.0) < 0.01, f"副屏缩放比应为 1.0，得到 {second_scale}"
+
+
+def test_mixed_dpi_does_not_fall_back_to_virtual_desktop():
+    """配对失败会退回整个虚拟桌面，那样截出来的位置全错，必须避免。"""
+    from pinref.overlay import _match_monitor
+
+    monitors = _monitors((0, 0, 3840, 2160), (3840, 0, 1920, 1080))
+    screens = [QRect(0, 0, 1920, 1080), QRect(1920, 0, 1920, 1080)]
+    virtual = monitors[0]
+    for geo in screens:
+        matched, _ = _match_monitor(monitors, geo, screens)
+        assert matched is not virtual, f"{geo} 退回了虚拟桌面兜底"
+
+
+def test_scale_is_derived_per_screen_not_shared():
+    """每块屏各算各的缩放比，不能共用一个。"""
+    from pinref.overlay import _match_monitor
+
+    monitors = _monitors((0, 0, 2560, 1440), (2560, 0, 1920, 1080))
+    screens = [QRect(0, 0, 1280, 720), QRect(1280, 0, 1920, 1080)]
+    _, high = _match_monitor(monitors, screens[0], screens)  # 200%
+    _, low = _match_monitor(monitors, screens[1], screens)   # 100%
+    assert abs(high - 2.0) < 0.01, f"200% 那块屏得到 {high}"
+    assert abs(low - 1.0) < 0.01, f"100% 那块屏得到 {low}"
+
+
+def test_macos_style_logical_monitors_still_match():
+    """macOS 上 mss 报的是逻辑点，缩放比恒为 1，不能被新逻辑改坏。"""
+    from pinref.overlay import _match_monitor
+
+    monitors = _monitors((0, 0, 1512, 982), (-2560, 0, 2560, 1440))
+    screens = [QRect(0, 0, 1512, 982), QRect(-2560, 0, 2560, 1440)]
+    built_in, scale_a = _match_monitor(monitors, screens[0], screens)
+    external, scale_b = _match_monitor(monitors, screens[1], screens)
+    assert built_in["width"] == 1512 and abs(scale_a - 1.0) < 0.01
+    assert external["width"] == 2560 and abs(scale_b - 1.0) < 0.01
+
+
+def test_no_candidate_falls_back_safely():
+    """尺寸完全对不上时退回虚拟桌面，至少不能崩。"""
+    from pinref.overlay import _match_monitor
+
+    monitors = _monitors((0, 0, 1920, 1080))
+    geo = QRect(0, 0, 800, 137)
+    matched, scale = _match_monitor(monitors, geo, [geo])
+    assert matched is monitors[0] and scale == 1.0
+
+
 if __name__ == "__main__":
     tests = [
         (name, fn)
