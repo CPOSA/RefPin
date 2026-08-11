@@ -219,6 +219,14 @@ python tools/platform_check.py
 
 在 macOS 和 Windows 各跑一次，把两边输出对比着看，差异就是平台问题。
 
+压力测试单独一个脚本，覆盖 TEST.md 第 9 节的连续调色、反复开关面板和反复建关浮窗，
+并按固定间隔采样进程内存以判断是否泄漏：
+
+```bash
+python tools/stress_check.py        # 每种分辨率连续调色 30 秒，约 3 分钟
+python tools/stress_check.py 5      # 缩短时长，先跑通流程用
+```
+
 提交前建议同时执行：
 
 ```bash
