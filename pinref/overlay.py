@@ -26,6 +26,32 @@ DIM_ALPHA = 110
 # 不等的话会把遮罩自己截进去 —— 要给系统时间真的把它擦掉。
 HIDE_DELAY_MS = 120
 
+# macOS 的窗口层级：菜单栏在 24、程序坞在 20，而 Qt 的置顶窗口只有 8，
+# 所以遮罩默认盖不住这两条。抬到 25（NSStatusWindowLevel）刚好压过它们。
+# 实测：level=8 时菜单栏亮度纹丝不动（123.8→123.8），抬到 25 后降到 70.3。
+# 不用 CGShieldingWindowLevel（21 亿那个）：效果一样，但它连系统弹窗和屏保
+# 都盖，对一个截图遮罩来说太霸道。
+_MACOS_ABOVE_MENU_BAR = 25
+
+
+def _raise_above_menu_bar(widget) -> bool:
+    """macOS 上把窗口抬到菜单栏和程序坞之上。其他平台什么都不做。
+
+    没装 pyobjc 也能跑，只是遮罩盖不住那两条，不影响框选本身。
+    """
+    if sys.platform != "darwin":
+        return False
+    try:
+        import objc
+    except ImportError:
+        return False
+    try:
+        native = objc.objc_object(c_void_p=int(widget.winId())).window()
+        native.setLevel_(_MACOS_ABOVE_MENU_BAR)
+    except Exception:  # noqa: BLE001 —— 抬不动就算了，不能让截图整个挂掉
+        return False
+    return True
+
 
 class _ScreenOverlay(QWidget):
     """盖在单块屏幕上的半透明遮罩，负责画框。"""
@@ -157,6 +183,8 @@ class ScreenSelector(QObject):
             overlay.cancelled.connect(self._on_cancelled)
             self._overlays.append(overlay)
             overlay.show()
+            # 要在 show 之后抬：窗口得先存在，才拿得到背后的 NSWindow
+            _raise_above_menu_bar(overlay)
             overlay.raise_()
 
         if self._overlays:
