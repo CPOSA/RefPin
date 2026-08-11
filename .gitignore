@@ -1,0 +1,11 @@
+# 虚拟环境 —— 几百 MB,绝对不能进 git
+# 别人拿到代码后用 requirements.txt 自己建就行
+.venv/
+venv/
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
