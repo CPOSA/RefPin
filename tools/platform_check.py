@@ -139,6 +139,45 @@ def check_coordinate_mapping(app):
 # ---------------------------------------------------------------- 4. 抓屏
 
 
+_ALIGN_RADIUS = 6
+
+
+def _best_alignment(a, b, radius=_ALIGN_RADIUS):
+    """在 ±radius 像素内找让两张图最接近的整数位移，返回 (dx, dy, 残差, 对比度)。
+
+    这一节真正要判的是"有没有截偏"，早先直接拿平均绝对差和固定阈值比，
+    结果被重采样噪点带偏了：副屏 150% 时实测 scale 是 1.4996 而不是 1.5，
+    抓屏要重采样，画面细节一多平均差就往上走——实测 24.5，离旧阈值 25 只差 0.5，
+    而那是个完全合法的配置（详见 TEST.md D-004）。画面在两次抓屏之间变了
+    也会推高这个数，同样不是坐标错误。
+
+    改成问"最佳对齐位移是不是 (0,0)"就绕开了这两件事：重采样噪点和画面变动
+    都不会让最佳位移偏离原点，而真正截偏了必然偏离。判据和要判的事情对上了，
+    也就不需要为噪点留阈值余量。
+    """
+    import numpy as np
+
+    grey_a = a.astype(np.float64).mean(axis=2)
+    grey_b = b.astype(np.float64).mean(axis=2)
+    height, width = grey_a.shape
+    if height <= 2 * radius or width <= 2 * radius:
+        return 0, 0, float(np.abs(grey_a - grey_b).mean()), float(grey_a.std())
+
+    # 参考块取中心，四周留出 radius 的余量给平移用
+    core = grey_a[radius : height - radius, radius : width - radius]
+    best = (0, 0, float("inf"))
+    for dy in range(-radius, radius + 1):
+        for dx in range(-radius, radius + 1):
+            window = grey_b[
+                radius + dy : height - radius + dy,
+                radius + dx : width - radius + dx,
+            ]
+            score = float(np.abs(core - window).mean())
+            if score < best[2]:
+                best = (dx, dy, score)
+    return best[0], best[1], best[2], float(core.std())
+
+
 def check_capture(app):
     title("4. 抓屏（两个后端对比）")
     import numpy as np
@@ -181,13 +220,35 @@ def check_capture(app):
             if len(shots) == 2:
                 a, b = shots["qt"], shots["mss"]
                 side = min(a.shape[0], b.shape[0]), min(a.shape[1], b.shape[1])
-                diff = np.abs(a[: side[0], : side[1]].astype(int)
-                              - b[: side[0], : side[1]].astype(int)).mean()
-                same = diff < 25
-                print(f"      两个后端内容差异 {diff:.1f}/255  "
-                      f"{'一致，说明截的是同一块区域' if same else '差异大！很可能有一个截偏了'}")
-                if not same:
-                    failures.append(f"{screen.name()} 两后端不一致")
+                a, b = a[: side[0], : side[1]], b[: side[0], : side[1]]
+                diff = np.abs(a.astype(int) - b.astype(int)).mean()
+                dx, dy, residual, contrast = _best_alignment(a, b)
+
+                # 画面接近纯色时，平移到哪儿差别都不大，位移判不出来也不该算失败
+                if contrast < 3.0:
+                    verdict = "画面太平，无法判定对齐（换个有内容的区域再测）"
+                elif residual >= contrast * 0.5:
+                    # ±radius 内没有一个位移能让两张图对上。此时 argmin 落在哪儿
+                    # 纯属偶然，报出来的位移是假的，只能说明偏移超出了搜索范围。
+                    verdict = (f"对不上！{_ALIGN_RADIUS} 像素内找不到对齐位置，"
+                               f"偏移超出搜索范围或内容根本不同")
+                    failures.append(f"{screen.name()} 两后端对不上")
+                elif dx == 0 and dy == 0:
+                    verdict = "对齐于 (0,0)，说明截的是同一块区域"
+                elif abs(dx) <= 1 and abs(dy) <= 1:
+                    # 非整数缩放下两条抓屏路径各自算起点，会舍入到不同的物理像素。
+                    # 150% 时 1 物理像素只有 0.67 个逻辑像素，落到浮窗上看不出来，
+                    # 真正的截偏是几百上千像素级别的，不会只差 1。
+                    verdict = (f"偏 ({dx:+d},{dy:+d}) 像素，非整数缩放的起点舍入，"
+                               f"不足 1 个逻辑像素，可接受")
+                else:
+                    verdict = f"截偏了！最佳对齐位移 ({dx:+d},{dy:+d}) 像素"
+                    failures.append(f"{screen.name()} 两后端偏移 ({dx:+d},{dy:+d})")
+
+                print(f"      两个后端内容差异 {diff:.1f}/255"
+                      f"（仅供参考，会被重采样和画面变动推高）")
+                print(f"      对齐检查  残差 {residual:.1f}/255  对比度 {contrast:.1f}"
+                      f"  {verdict}")
     finally:
         overlay.CAPTURE_BACKEND = original
 

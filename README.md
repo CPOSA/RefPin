@@ -18,7 +18,7 @@ PinRef 是一个基于 Python 和 Qt 的跨平台桌面参考图工具。它允�
 
 ## 环境要求
 
-- Python 3.10 或更高版本
+- Python 3.11 或更高版本（`numpy>=2.3` 已不再提供 3.10 的 wheel）
 - macOS 或 Windows
 - macOS 首次运行时需要授予终端或 Python 进程“屏幕与系统音频录制”权限
 
@@ -50,6 +50,33 @@ python -m pip install -r requirements.txt
 python -m pinref.main
 ```
 
+### Conda（系统 Python 低于 3.11 时）
+
+`py -m venv` 只能沿用系统已装的解释器。如果本机最高只有 Python 3.10，
+venv 里装不上 `numpy>=2.3`，用 conda 单独建一个 3.13 环境即可，不必改动系统 Python：
+
+```powershell
+conda create -n refpin python=3.13 -y
+conda activate refpin
+python -m pip install -r requirements.txt
+python -m pinref.main
+```
+
+macOS / Linux shell 下把 `conda activate` 之前的初始化交给 `conda init` 即可，其余命令相同。
+
+用完可以整个删掉：
+
+```powershell
+conda env remove -n refpin
+```
+
+如果所在 shell 没有初始化过 conda，`conda activate` 会失败。此时可以跳过激活，
+直接用环境里的解释器绝对路径运行，效果一样：
+
+```powershell
+& $env:CONDA_PREFIX\envs\refpin\python.exe -m pinref.main
+```
+
 Linux 目前不是正式支持的平台；上述命令仅表示项目可在常见 shell 环境中安装，平台行为未纳入当前验收范围。
 
 ## 使用方式
@@ -61,6 +88,7 @@ Linux 目前不是正式支持的平台；上述命令仅表示项目可在常�
 | 移动悬浮图 | 按住悬浮图拖动 |
 | 打开或关闭控制面板 | 双击悬浮图 |
 | 调整图像 | 使用控制面板中的灰度、色相和透明度滑块 |
+| 复位单个滑块 | 双击该滑块回到默认值（色相在 0 附近还会吸附）|
 | 关闭控制面板 | 控制面板获得焦点时按 `Esc` |
 | 关闭参考图 | 在悬浮图上右键或按 `Esc` |
 
@@ -110,6 +138,9 @@ main
 - Windows 和 Linux 使用相对于目标屏幕的局部坐标
 
 这一区分用于避免 Windows 副屏存在负坐标或非零原点时截取错误区域。
+
+选区旁的尺寸提示按**物理像素**显示，即截图实际得到的像素数。在 150% 缩放的 4K 屏上
+框满全屏会显示 `3840 × 2160` 而非逻辑尺寸 `2560 × 1440`，以免让人误以为丢失了分辨率。
 
 ### `pinref.floating`
 
@@ -174,11 +205,19 @@ QT_QPA_PLATFORM=offscreen python tests/test_floating.py
 
 PowerShell 中可先执行 `$env:QT_QPA_PLATFORM = "offscreen"`，再运行同一测试命令。
 
-当前共有 56 项自动化检查：
+当前共有 65 项自动化检查：
 
 - 图像处理：33 项
-- 悬浮窗口与控制面板：18 项
-- 选区与跨平台坐标：5 项
+- 悬浮窗口与控制面板：20 项
+- 选区与跨平台坐标：12 项
+
+另外有一个跨平台自检脚本，一条命令跑完环境、屏幕拓扑、坐标换算、抓屏、性能和上述自动化测试：
+
+```bash
+python tools/platform_check.py
+```
+
+在 macOS 和 Windows 各跑一次，把两边输出对比着看，差异就是平台问题。
 
 提交前建议同时执行：
 

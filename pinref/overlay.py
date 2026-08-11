@@ -9,9 +9,9 @@
 
 from __future__ import annotations
 
+import math
 import sys
 
-import mss
 from PySide6.QtCore import QObject, QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import QWidget
@@ -98,8 +98,14 @@ class _ScreenOverlay(QWidget):
         self._draw_size_hint(painter, box)
 
     def _draw_size_hint(self, painter: QPainter, box: QRect):
-        """在选框旁边标出尺寸，方便截固定大小的参考图。"""
-        label = f"{box.width()} × {box.height()}"
+        """在选框旁边标出尺寸，方便截固定大小的参考图。
+
+        标的是**物理像素**，也就是截图真正拿到的像素数。box 本身是逻辑点，
+        在 150% 缩放的 4K 屏上框满全屏只有 2560x1440，看着像没截到 4K，
+        实际截到的是 3840x2160（见 TEST.md D-006）。参考图关心的是细节有多少，
+        所以按物理像素报。
+        """
+        label = f"{self._physical(box.width())} × {self._physical(box.height())}"
         metrics = painter.fontMetrics()
         pad = 4
         text_w = metrics.horizontalAdvance(label) + pad * 2
@@ -114,6 +120,9 @@ class _ScreenOverlay(QWidget):
         painter.fillRect(QRect(x, y, text_w, text_h), QColor(0, 0, 0, 180))
         painter.setPen(QColor(255, 255, 255))
         painter.drawText(QRect(x, y, text_w, text_h), Qt.AlignCenter, label)
+
+    def _physical(self, logical: int) -> int:
+        return _to_physical(logical, self._screen.devicePixelRatio())
 
     def _box(self) -> QRect | None:
         """当前选框，本地坐标。
@@ -244,6 +253,17 @@ def _grab_with_qt(rect: QRect) -> QPixmap:
     )
 
 
+def _to_physical(logical: int, ratio: float) -> int:
+    """逻辑点 → 物理像素，舍入方式对齐 Qt。
+
+    用「加 0.5 再向下取整」而不是内置 round：Python 的 round 是银行家舍入，
+    round(2560.5) 得 2560，而 Qt 的 qRound 是四舍五入得 2561。副屏在 150% 下
+    逻辑宽 1707，×1.5 正好落在 .5 上，两种舍入会差 1 像素，选框标签就和实际
+    截到的尺寸对不上了 —— 实测该屏整屏截图正是 2561x1601。
+    """
+    return math.floor(logical * ratio + 0.5)
+
+
 def _qt_capture_rect(
     rect: QRect, screen_geometry: QRect, platform: str | None = None
 ) -> QRect:
@@ -269,7 +289,12 @@ def _grab_with_mss(rect: QRect) -> QPixmap:
     - Windows：mss 用物理像素，系统缩放 150% 时缩放比 = 1.5。
     所以缩放比不能写死成 devicePixelRatio，得在运行时用
     「mss 报的屏幕尺寸 ÷ Qt 报的屏幕尺寸」实测出来。
+
+    import 放在函数里而不是模块顶部：默认后端是 qt，绝大多数运行根本走不到
+    这个分支，而 import mss 要 60 ms 上下，摊在启动路径上是白等（见 TEST.md D-007）。
     """
+    import mss
+
     screen = QGuiApplication.screenAt(rect.center()) or QGuiApplication.primaryScreen()
     geo = screen.geometry()
 

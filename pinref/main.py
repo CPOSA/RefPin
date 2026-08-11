@@ -7,14 +7,31 @@
 
 from __future__ import annotations
 
+import contextlib
 import sys
+import threading
 
 from PySide6.QtCore import QPoint
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication
 
-from pinref.floating import FloatingImage
 from pinref.overlay import ScreenSelector
+
+
+def _preload_imaging():
+    """在后台把 pinref.floating 那条链导进来。
+
+    floating → imaging → numpy 要 150 ms 上下，但框选阶段一个都用不到。
+    放在模块顶部导，等的是启动；挪到截图那一刻导，等的是松开鼠标之后——
+    两头都难受。所以遮罩一显示就在后台线程里预热，用户拖框那几百毫秒
+    足够导完，等真要建浮窗时通常已经就绪（见 TEST.md D-007）。
+
+    线程里只做 import，不碰任何 Qt 对象，符合"GUI 对象只在主线程动"这条约束。
+    import 本身有锁，和主线程里的 import 撞上也只是等它导完，不会重复执行。
+    """
+    # 预热失败不该影响主流程：真正要用时会在主线程再导一次，那时该报的错照报
+    with contextlib.suppress(Exception):
+        import pinref.floating  # noqa: F401
 
 
 def _use_accessory_policy() -> bool:
@@ -51,9 +68,12 @@ def main() -> int:
     # 不关掉这个默认行为，程序会在那一刻自己退出。
     app.setQuitOnLastWindowClosed(False)
 
-    pins: list[FloatingImage] = []
+    pins: list = []
 
     def on_captured(pixmap: QPixmap, top_left: QPoint):
+        # 通常预热线程已经导完，这里直接拿到缓存好的模块
+        from pinref.floating import FloatingImage
+
         pin = FloatingImage(pixmap, top_left)
         pin.closed.connect(lambda: on_pin_closed(pin))
         pins.append(pin)
@@ -61,7 +81,7 @@ def main() -> int:
         pin.raise_()
         pin.activateWindow()
 
-    def on_pin_closed(pin: FloatingImage):
+    def on_pin_closed(pin):
         if pin in pins:
             pins.remove(pin)
         if not pins:
@@ -71,6 +91,9 @@ def main() -> int:
     selector.captured.connect(on_captured)
     selector.cancelled.connect(app.quit)
     selector.start()
+
+    # 遮罩已经在屏幕上了，趁用户拖框的这段时间把 numpy 那条链导进来
+    threading.Thread(target=_preload_imaging, daemon=True).start()
 
     return app.exec()
 

@@ -21,14 +21,48 @@ PANEL_WIDTH = 268
 CORNER_RADIUS = 10
 
 
+class _ResettableSlider(QSlider):
+    """双击复位到默认值的滑块，默认值附近还带一点吸附。
+
+    色相的默认值 0 卡在滑槽正中间，而灰度和不透明度的默认值都在两端，
+    随手一甩就到。面板宽 268，扣掉边距和标签后滑槽只有 150 上下，
+    色相却有 361 个取值，约 2.4°/像素 —— 想拖回正 0 得有像素级精度，
+    实测基本靠运气（见 TEST.md D-005）。
+
+    吸附只挂在 sliderMoved 上，不挂 valueChanged。valueChanged 对键盘也会发，
+    挂上去的话从 0 按一下方向键到 1，又被吸回 0，方向键在默认值附近就废了。
+    sliderMoved 只在鼠标拖动时发，正好只管住"拖不准"这件事。
+    """
+
+    def __init__(self, low: int, high: int, default: int, snap: int = 0):
+        super().__init__(Qt.Horizontal)
+        self.setRange(low, high)
+        self.setValue(default)
+        self._default = default
+        self._snap = snap
+        if snap:
+            self.sliderMoved.connect(self._snap_to_default)
+
+    def _snap_to_default(self, value: int):
+        if value != self._default and abs(value - self._default) <= self._snap:
+            self.setValue(self._default)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.setValue(self._default)
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
+
+
 class _Row:
     """一行滑块：名称、滑块本体、右侧的数值。"""
 
-    def __init__(self, name: str, low: int, high: int, initial: int, suffix: str):
+    def __init__(
+        self, name: str, low: int, high: int, initial: int, suffix: str, snap: int = 0
+    ):
         self.label = QLabel(name)
-        self.slider = QSlider(Qt.Horizontal)
-        self.slider.setRange(low, high)
-        self.slider.setValue(initial)
+        self.slider = _ResettableSlider(low, high, initial, snap)
         self.value = QLabel()
         self.value.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.value.setMinimumWidth(46)
@@ -56,7 +90,8 @@ class ControlPanel(QWidget):
         self._drag_offset: QPoint | None = None
 
         self._gray = _Row("灰度", 0, 100, 0, "%")
-        self._hue = _Row("色相", -180, 180, 0, "°")
+        # 只有色相需要吸附：默认值在滑槽正中，两端的那两个随手就能拖到
+        self._hue = _Row("色相", -180, 180, 0, "°", snap=3)
         self._opacity = _Row("不透明度", 20, 100, 100, "%")
         self._rows = (self._gray, self._hue, self._opacity)
 

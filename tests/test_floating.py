@@ -144,6 +144,60 @@ def test_panel_reopen_restores_values():
     pin.close()
 
 
+def test_double_click_resets_slider_to_default():
+    """双击滑块回到默认值。
+
+    色相的默认值 0 在滑槽正中，靠拖几乎停不准（TEST.md D-005），
+    双击是可靠的那条路，三个滑块都得支持。
+    """
+    pin = make_pin(size=200)
+    pin.toggle_panel()
+    panel = pin._panel
+    for row, moved, default in (
+        (panel._gray, 63, 0),
+        (panel._hue, -117, 0),
+        (panel._opacity, 45, 100),
+    ):
+        row.slider.setValue(moved)
+        assert row.slider.value() == moved
+        row.slider.mouseDoubleClickEvent(
+            QMouseEvent(
+                QEvent.MouseButtonDblClick,
+                QPointF(5, 5),
+                QPointF(5, 5),
+                Qt.LeftButton,
+                Qt.LeftButton,
+                Qt.NoModifier,
+            )
+        )
+        assert row.slider.value() == default, f"{row.label.text()} 双击没回到默认值"
+    pin.close()
+
+
+def test_hue_snaps_to_zero_only_while_dragging():
+    """色相拖到 0 附近吸附，但方向键不能被吸住。
+
+    吸附挂在 sliderMoved（只有鼠标拖动会发），不挂 valueChanged。
+    挂后者的话从 0 按一下方向键到 1 会被吸回 0，方向键在默认值附近就废了。
+    """
+    pin = make_pin(size=200)
+    pin.toggle_panel()
+    hue = pin._panel._hue.slider
+
+    # 拖动：落在 ±3 内被吸到 0，超出则原样保留
+    for moved, expected in ((2, 0), (-3, 0), (3, 0), (4, 4), (-9, -9)):
+        hue.setValue(moved)
+        hue.sliderMoved.emit(moved)
+        assert hue.value() == expected, f"拖到 {moved} 应得 {expected}"
+
+    # 键盘：逐度步进不受吸附影响，否则 0 附近就调不动了
+    hue.setValue(0)
+    for _ in range(3):
+        QTest.keyClick(hue, Qt.Key_Right)
+    assert hue.value() == 3, f"方向键被吸附卡住了，停在 {hue.value()}"
+    pin.close()
+
+
 def test_panel_defaults_and_ranges():
     """面板公开给用户的范围和初始值必须与 README 一致。"""
     pin = make_pin(size=200)

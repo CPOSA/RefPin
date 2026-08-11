@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from PySide6.QtCore import QRect  # noqa: E402
 
-from pinref.overlay import _qt_capture_rect  # noqa: E402
+from pinref.overlay import _qt_capture_rect, _to_physical  # noqa: E402
 
 
 def test_primary_screen_coordinates_are_unchanged():
@@ -135,6 +135,30 @@ def test_no_candidate_falls_back_safely():
     geo = QRect(0, 0, 800, 137)
     matched, scale = _match_monitor(monitors, geo, [geo])
     assert matched is monitors[0] and scale == 1.0
+
+
+def test_size_hint_reports_physical_pixels():
+    """选框标签报的是物理像素，也就是截图真正拿到的像素数。
+
+    150% 的 4K 屏框满全屏，逻辑只有 2560x1440，看着像没截到 4K，
+    实际截到 3840x2160（TEST.md D-006）。
+    """
+    assert (_to_physical(2560, 1.5), _to_physical(1440, 1.5)) == (3840, 2160)
+    assert (_to_physical(320, 1.0), _to_physical(240, 1.0)) == (320, 240)
+    assert (_to_physical(1280, 2.0), _to_physical(800, 2.0)) == (2560, 1600)
+
+
+def test_size_hint_rounds_half_up_like_qt():
+    """.5 要向上进位，跟 Qt 的 qRound 一致，不能用 Python 的银行家舍入。
+
+    副屏 2560x1600 在 150% 下逻辑是 1707x1067，×1.5 正好落在 .5 上。
+    内置 round(2560.5) 得 2560，而实测该屏整屏截图是 2561x1601，
+    用 round 会让标签比实际少 1 像素。
+    """
+    assert 1707 * 1.5 == 2560.5, "前提变了：这个用例依赖 1707×1.5 正好落在 .5"
+    assert round(1707 * 1.5) == 2560, "Python 的银行家舍入行为变了"
+    assert _to_physical(1707, 1.5) == 2561
+    assert _to_physical(1067, 1.5) == 1601
 
 
 if __name__ == "__main__":
