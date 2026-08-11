@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import mss
 from PySide6.QtCore import QObject, QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPen, QPixmap
@@ -85,9 +87,7 @@ class _ScreenOverlay(QWidget):
 
         painter.fillRect(QRect(x, y, text_w, text_h), QColor(0, 0, 0, 180))
         painter.setPen(QColor(255, 255, 255))
-        painter.drawText(
-            QRect(x, y, text_w, text_h), Qt.AlignCenter, label
-        )
+        painter.drawText(QRect(x, y, text_w, text_h), Qt.AlignCenter, label)
 
     def _box(self) -> QRect | None:
         """当前选框，本地坐标。
@@ -204,11 +204,33 @@ def grab_screen_rect(rect: QRect) -> QPixmap:
 
 
 def _grab_with_qt(rect: QRect) -> QPixmap:
-    """Qt 自带抓屏。坐标直接用逻辑坐标，Retina 下自动给原生分辨率。"""
+    """Qt 自带抓屏。Retina / 高 DPI 下自动返回原生分辨率。"""
     screen = QGuiApplication.screenAt(rect.center()) or QGuiApplication.primaryScreen()
+    grab_rect = _qt_capture_rect(rect, screen.geometry())
     return screen.grabWindow(
-        0, rect.x(), rect.y(), rect.width(), rect.height()
+        0,
+        grab_rect.x(),
+        grab_rect.y(),
+        grab_rect.width(),
+        grab_rect.height(),
     )
+
+
+def _qt_capture_rect(
+    rect: QRect, screen_geometry: QRect, platform: str | None = None
+) -> QRect:
+    """把全局逻辑坐标转换成 ``QScreen.grabWindow`` 需要的坐标。
+
+    ``grabWindow(0, x, y, ...)`` 的坐标语义是平台相关的：macOS 使用
+    虚拟桌面全局坐标，Windows / X11 使用相对当前屏幕左上角的局部坐标。
+    主屏通常从 (0, 0) 开始，所以这个问题只会在副屏暴露出来。
+
+    ``platform`` 主要供跨平台单元测试使用；正常运行时使用 ``sys.platform``。
+    """
+    current_platform = sys.platform if platform is None else platform
+    if current_platform == "darwin":
+        return QRect(rect)
+    return rect.translated(-screen_geometry.topLeft())
 
 
 def _grab_with_mss(rect: QRect) -> QPixmap:
