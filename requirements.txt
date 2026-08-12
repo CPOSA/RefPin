@@ -18,9 +18,6 @@ mss>=10.0,<11
 # 像素级数学运算：灰度、色相、透明度都靠它向量化计算
 numpy>=2.3,<3
 
-# 图像读写与格式转换，配合 numpy 在 QPixmap 和数组之间来回转
-Pillow>=11.0,<13
-
 # --- 仅 macOS ---
 
 # 用来把 app 切成 accessory 类型。不切的话，遇到有全屏 app 的屏幕，
@@ -32,3 +29,8 @@ pyobjc-framework-Cocoa>=10,<13; sys_platform == "darwin"
 
 # 全局快捷键（不用切回程序就能唤起截图）
 # pynput>=1.7,<2
+
+# 图像读写与格式转换。阶段 1、2 用不上：QPixmap 和 numpy 数组之间的转换
+# 由 imaging.py 直接用 QImage 完成，代码里没有任何 PIL 引用。
+# 等真要做文件导入导出时再解开（详见 TEST.md D-009）。
+# Pillow>=11.0,<13

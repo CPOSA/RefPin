@@ -169,6 +169,23 @@ def test_size_hint_rounds_half_up_like_qt():
     assert _to_physical(1067, 1.5) == 1601
 
 
+def test_mss_origin_rounds_like_qt():
+    """mss 后端算抓屏起点的舍入必须和 Qt 一致。
+
+    两个后端各自算起点，若舍入方式不同，同一块区域会落在相差 1 物理像素
+    的位置上（TEST.md D-010）。150% 下逻辑 568 处 ×1.5 正好落在 .5 上，
+    是最容易暴露差异的坐标。
+    """
+    assert 568 * 1.5 == 852.0
+    assert 569 * 1.5 == 853.5
+    assert round(853.5) == 854, "Python 的银行家舍入行为变了"
+    # .5 一律进位，和 _draw_size_hint 用的是同一个函数
+    assert _to_physical(569, 1.5) == 854
+    assert _to_physical(1707, 1.5) == 2561
+    # mss 实测出来的 scale 通常不是整齐的 1.5，换算同样不能出现半像素
+    assert _to_physical(569, 1.4996192424489492) == 853
+
+
 def _right_button(kind, overlay, pos=QPoint(30, 30)):
     buttons = Qt.RightButton if kind == QEvent.MouseButtonPress else Qt.NoButton
     return QMouseEvent(

@@ -311,11 +311,14 @@ def _grab_with_mss(rect: QRect) -> QPixmap:
 
     with mss.MSS() as sct:  # 注意是 MSS 大写，mss.mss() 在 10.x 已废弃
         monitor, scale = _match_monitor(sct.monitors, geo)
+        # 舍入必须和 Qt 一致，否则两个后端会落在相差 1 物理像素的位置上：
+        # 内置 round 是银行家舍入，round(852.5) 得 852，而 Qt 的 qRound 得 853
+        # （详见 TEST.md D-010）
         region = {
-            "left": monitor["left"] + round((rect.x() - geo.x()) * scale),
-            "top": monitor["top"] + round((rect.y() - geo.y()) * scale),
-            "width": max(1, round(rect.width() * scale)),
-            "height": max(1, round(rect.height() * scale)),
+            "left": monitor["left"] + _to_physical(rect.x() - geo.x(), scale),
+            "top": monitor["top"] + _to_physical(rect.y() - geo.y(), scale),
+            "width": max(1, _to_physical(rect.width(), scale)),
+            "height": max(1, _to_physical(rect.height(), scale)),
         }
         shot = sct.grab(region)
 
