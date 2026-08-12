@@ -11,9 +11,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PySide6.QtCore import QRect  # noqa: E402
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt  # noqa: E402
+from PySide6.QtGui import QGuiApplication, QMouseEvent  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from pinref.overlay import _qt_capture_rect, _to_physical  # noqa: E402
+from pinref.overlay import (  # noqa: E402
+    _qt_capture_rect,
+    _ScreenOverlay,
+    _to_physical,
+)
+
+_app = QApplication.instance() or QApplication([])
 
 
 def test_primary_screen_coordinates_are_unchanged():
@@ -159,6 +167,46 @@ def test_size_hint_rounds_half_up_like_qt():
     assert round(1707 * 1.5) == 2560, "Python 的银行家舍入行为变了"
     assert _to_physical(1707, 1.5) == 2561
     assert _to_physical(1067, 1.5) == 1601
+
+
+def _right_button(kind, overlay, pos=QPoint(30, 30)):
+    buttons = Qt.RightButton if kind == QEvent.MouseButtonPress else Qt.NoButton
+    return QMouseEvent(
+        kind, QPointF(pos), QPointF(pos), Qt.RightButton, buttons, Qt.NoModifier
+    )
+
+
+def test_right_click_cancels_on_release_not_press():
+    """右键取消必须等松开才动作。
+
+    按下就取消的话遮罩立刻销毁，右键的「松开」落到下面那个窗口上，
+    而多数程序的右键菜单正是在松开时弹出——取消框选会顺手在背后的
+    页面点出一个菜单（TEST.md D-011）。整个点击要由遮罩吃掉。
+    """
+    overlay = _ScreenOverlay(QGuiApplication.primaryScreen())
+    cancelled = []
+    overlay.cancelled.connect(lambda: cancelled.append(1))
+
+    overlay.mousePressEvent(_right_button(QEvent.MouseButtonPress, overlay))
+    assert not cancelled, "右键刚按下就取消了，松开会漏给背后的窗口"
+
+    overlay.mouseReleaseEvent(_right_button(QEvent.MouseButtonRelease, overlay))
+    assert len(cancelled) == 1, "松开后应该取消"
+    overlay.close()
+
+
+def test_stray_right_release_does_not_cancel():
+    """没在遮罩上按下过的右键松开，不该触发取消。
+
+    例如遮罩弹出前用户已按住右键，松开时遮罩才刚显示——这一下不该算数。
+    """
+    overlay = _ScreenOverlay(QGuiApplication.primaryScreen())
+    cancelled = []
+    overlay.cancelled.connect(lambda: cancelled.append(1))
+
+    overlay.mouseReleaseEvent(_right_button(QEvent.MouseButtonRelease, overlay))
+    assert not cancelled, "没按下过就取消了"
+    overlay.close()
 
 
 if __name__ == "__main__":

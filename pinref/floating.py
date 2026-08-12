@@ -31,6 +31,7 @@ class FloatingImage(QWidget):
         self._adjuster = Adjuster(pixmap)
         self._panel: ControlPanel | None = None
         self._drag_offset: QPoint | None = None
+        self._right_pressed = False
 
         # 调节值存在浮窗上，不存在面板上 —— 面板可以随时收起重开，
         # 状态得活得比它久，否则重开后滑块归零、图片却还是旧效果
@@ -134,7 +135,9 @@ class FloatingImage(QWidget):
                 event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             )
         elif event.button() == Qt.RightButton:
-            self.close()
+            # 等松开再关，理由同遮罩：按下就关的话窗口没了，
+            # 右键的「松开」会落到背后的窗口上，顺手点出一个右键菜单
+            self._right_pressed = True
 
     def mouseMoveEvent(self, event):
         if self._drag_offset is not None and event.buttons() & Qt.LeftButton:
@@ -143,6 +146,9 @@ class FloatingImage(QWidget):
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
             self._drag_offset = None
+        elif event.button() == Qt.RightButton and self._right_pressed:
+            self._right_pressed = False
+            self.close()
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton:

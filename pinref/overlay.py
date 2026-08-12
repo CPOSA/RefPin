@@ -77,6 +77,7 @@ class _ScreenOverlay(QWidget):
 
         self._origin: QPoint | None = None
         self._cursor: QPoint | None = None
+        self._right_pressed = False
 
     # ---------- 画面 ----------
 
@@ -145,7 +146,10 @@ class _ScreenOverlay(QWidget):
             self._cursor = self._origin
             self.update()
         elif event.button() == Qt.RightButton:
-            self.cancelled.emit()
+            # 只记下来，等松开再取消。在按下时就取消的话，遮罩立刻销毁，
+            # 右键的「松开」就落到了下面那个窗口上，而多数程序的右键菜单
+            # 正是在松开时弹出的 —— 取消框选会顺手在背后的页面点出一个菜单。
+            self._right_pressed = True
 
     def mouseMoveEvent(self, event):
         if self._origin is None:
@@ -158,6 +162,13 @@ class _ScreenOverlay(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, event):
+        if event.button() == Qt.RightButton:
+            # 整个右键点击（按下 + 松开）都由遮罩吃掉，不漏给下面的窗口
+            if self._right_pressed:
+                self._right_pressed = False
+                self.cancelled.emit()
+            return
+
         if event.button() != Qt.LeftButton or self._origin is None:
             return
         box = self._box()

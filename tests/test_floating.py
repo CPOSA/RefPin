@@ -61,6 +61,19 @@ def press(widget, pos, button=Qt.LeftButton, glob=None):
     )
 
 
+def release(widget, pos, button=Qt.LeftButton, glob=None):
+    widget.mouseReleaseEvent(
+        QMouseEvent(
+            QEvent.MouseButtonRelease,
+            QPointF(pos),
+            QPointF(glob or pos),
+            button,
+            Qt.NoButton,
+            Qt.NoModifier,
+        )
+    )
+
+
 def size_of(pin: FloatingImage) -> tuple[int, int]:
     return pin._pixmap.width(), pin._pixmap.height()
 
@@ -347,7 +360,26 @@ def test_right_click_closes_pin():
     closed = []
     pin.closed.connect(lambda: closed.append(1))
     press(pin, QPoint(10, 10), Qt.RightButton)
+    release(pin, QPoint(10, 10), Qt.RightButton)
     assert len(closed) == 1 and pin._panel is None
+
+
+def test_right_click_closes_pin_on_release_not_press():
+    """按下时不能关，必须等松开。
+
+    按下就关的话窗口立刻消失，右键的「松开」会落到背后的窗口上，
+    而多数程序的右键菜单正是在松开时弹出——关掉参考图会顺手在背后
+    点出一个菜单（TEST.md D-011）。整个点击要由本窗口吃掉。
+    """
+    pin = make_pin(size=200)
+    closed = []
+    pin.closed.connect(lambda: closed.append(1))
+
+    press(pin, QPoint(10, 10), Qt.RightButton)
+    assert not closed, "右键刚按下就关了，松开会漏给背后的窗口"
+
+    release(pin, QPoint(10, 10), Qt.RightButton)
+    assert len(closed) == 1
 
 
 def test_double_click_toggles_panel():

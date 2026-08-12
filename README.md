@@ -205,11 +205,11 @@ QT_QPA_PLATFORM=offscreen python tests/test_floating.py
 
 PowerShell 中可先执行 `$env:QT_QPA_PLATFORM = "offscreen"`，再运行同一测试命令。
 
-当前共有 65 项自动化检查：
+当前共有 68 项自动化检查：
 
 - 图像处理：33 项
-- 悬浮窗口与控制面板：20 项
-- 选区与跨平台坐标：12 项
+- 悬浮窗口与控制面板：21 项
+- 选区与跨平台坐标：14 项
 
 另外有一个跨平台自检脚本，一条命令跑完环境、屏幕拓扑、坐标换算、抓屏、性能和上述自动化测试：
 
