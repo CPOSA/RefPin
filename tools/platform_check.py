@@ -223,6 +223,7 @@ def check_capture(app):
 
     original = overlay.CAPTURE_BACKEND
     failures = []
+    unresolved = []
     try:
         for screen in QGuiApplication.screens():
             geo = screen.geometry()
@@ -273,11 +274,12 @@ def check_capture(app):
                 dx, dy, residual, contrast = _best_alignment(a, b)
 
                 # 画面接近纯色说明花纹没盖上去，这时对齐无从判定。
-                # 判不了不等于通过——早先这里只印一句话就放过，汇总照样报「全部通过」，
-                # 属于假通过。现在计入失败，强制查明原因。
+                # 判不了不等于通过——早先这里只印一句话就放过，汇总照样报「全部通过」。
+                # 但它也不同于「截偏了」：那是检查跑成了、结果不对，
+                # 这是检查根本没跑成。分成两类记，排查方向才不会被带偏。
                 if contrast < 3.0:
-                    verdict = "花纹没盖上，无法判定对齐（此项不算通过）"
-                    failures.append(f"{screen.name()} 无法判定对齐")
+                    verdict = "花纹没盖上，无法判定对齐（不算通过，也不是截偏）"
+                    unresolved.append(f"{screen.name()} 对齐无法判定")
                 elif residual >= contrast * 0.5:
                     # ±radius 内没有一个位移能让两张图对上。此时 argmin 落在哪儿
                     # 纯属偶然，报出来的位移是假的，只能说明偏移超出了搜索范围。
@@ -303,7 +305,12 @@ def check_capture(app):
     finally:
         overlay.CAPTURE_BACKEND = original
 
-    record("失败" if failures else "OK", "抓屏", f"{failures}" if failures else "")
+    if failures:
+        record("失败", "抓屏", f"{failures}")
+    elif unresolved:
+        record("未判定", "抓屏", f"{unresolved}")
+    else:
+        record("OK", "抓屏", "")
 
 
 # ---------------------------------------------------------------- 5. 窗口行为
@@ -467,13 +474,26 @@ def summarise():
     title("汇总")
     width = max(len(item) for _, item, _ in results) + 2
     for status, item, detail in results:
-        mark = {"OK": "  OK  ", "失败": " 失败 ", "注意": " 注意 ", "需人工确认": "人工确认"}[status]
+        mark = {
+            "OK": "  OK  ",
+            "失败": " 失败 ",
+            "未判定": " 未判定 ",
+            "注意": " 注意 ",
+            "需人工确认": "人工确认",
+        }[status]
         print(f"  [{mark}] {item:<{width}} {detail}")
 
     failures = [i for s, i, _ in results if s == "失败"]
+    # 「未判定」与「失败」分开报：前者是检查本身没跑成，后者是跑成了且结果不对，
+    # 两者的排查方向完全不同。但都不能算通过，退出码一样非零。
+    unresolved = [i for s, i, _ in results if s == "未判定"]
     print()
+    if unresolved:
+        print(f"  有 {len(unresolved)} 项没能判定：{unresolved}")
+        print("  这不是「通过」，是这项检查根本没跑成，需要查明原因。")
     if failures:
         print(f"  有 {len(failures)} 项失败：{failures}")
+    if failures or unresolved:
         print("  把上面完整输出发出来即可。")
     else:
         print("  自动可测的部分全部通过。")
@@ -483,7 +503,7 @@ def summarise():
         print("    - 面板圆角透明背景显示是否正常")
         print("    - 拖滑块的实际手感")
         print("    - 详细清单见 TEST.md")
-    return 1 if failures else 0
+    return 1 if (failures or unresolved) else 0
 
 
 def main() -> int:
