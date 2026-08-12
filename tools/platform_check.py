@@ -272,9 +272,12 @@ def check_capture(app):
                 diff = np.abs(a.astype(int) - b.astype(int)).mean()
                 dx, dy, residual, contrast = _best_alignment(a, b)
 
-                # 画面接近纯色时，平移到哪儿差别都不大，位移判不出来也不该算失败
+                # 画面接近纯色说明花纹没盖上去，这时对齐无从判定。
+                # 判不了不等于通过——早先这里只印一句话就放过，汇总照样报「全部通过」，
+                # 属于假通过。现在计入失败，强制查明原因。
                 if contrast < 3.0:
-                    verdict = "画面太平，无法判定对齐（花纹没盖上？）"
+                    verdict = "花纹没盖上，无法判定对齐（此项不算通过）"
+                    failures.append(f"{screen.name()} 无法判定对齐")
                 elif residual >= contrast * 0.5:
                     # ±radius 内没有一个位移能让两张图对上。此时 argmin 落在哪儿
                     # 纯属偶然，报出来的位移是假的，只能说明偏移超出了搜索范围。

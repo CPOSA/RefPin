@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import itertools
 import sys
 from pathlib import Path
 
@@ -16,10 +17,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PySide6.QtGui import QColorSpace, QImage, QPixmap  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtGui import QColorSpace, QImage, QPixmap
+from PySide6.QtWidgets import QApplication
 
-from pinref.imaging import (  # noqa: E402
+from pinref.imaging import (
     LUMA,
     Adjuster,
     hsv_to_rgb,
@@ -194,10 +195,10 @@ def test_gray_is_monotonic():
     """灰度从 0 拉到 1，颜色应当单调地往灰色靠，不能来回跳。"""
     adjuster = Adjuster(solid((220, 40, 90)))
     spreads = []
-    for step in range(0, 11):
+    for step in range(11):
         pixel = first_pixel(adjuster.apply(gray=step / 10.0))
         spreads.append(max(pixel) - min(pixel))
-    for earlier, later in zip(spreads, spreads[1:]):
+    for earlier, later in itertools.pairwise(spreads):
         assert later <= earlier + 1, f"色差没有单调收窄: {spreads}"
     assert spreads[-1] <= 1, f"拉满后仍有色差: {spreads[-1]}"
 

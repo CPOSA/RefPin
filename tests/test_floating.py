@@ -17,13 +17,19 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PySide6.QtCore import QEvent, QEventLoop, QPoint, QPointF, Qt, QTimer  # noqa: E402
-from PySide6.QtGui import QGuiApplication, QImage, QKeyEvent, QMouseEvent, QPixmap  # noqa: E402
-from PySide6.QtTest import QTest  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtCore import QEvent, QEventLoop, QPoint, QPointF, Qt, QTimer
+from PySide6.QtGui import (
+    QGuiApplication,
+    QImage,
+    QKeyEvent,
+    QMouseEvent,
+    QPixmap,
+)
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication
 
-from pinref.floating import FloatingImage  # noqa: E402
-from pinref.imaging import pixmap_to_rgb  # noqa: E402
+from pinref.floating import FloatingImage
+from pinref.imaging import pixmap_to_rgb
 
 _app = QApplication.instance() or QApplication([])
 
@@ -31,7 +37,8 @@ _app = QApplication.instance() or QApplication([])
 # ---------- 小工具 ----------
 
 
-def make_pin(color=(220, 60, 30), size=800, at=QPoint(60, 60)) -> FloatingImage:
+def make_pin(color=(220, 60, 30), size=800, at=None) -> FloatingImage:
+    at = at or QPoint(60, 60)
     arr = np.zeros((size, size, 4), dtype=np.uint8)
     arr[:, :, 0], arr[:, :, 1], arr[:, :, 2] = color[2], color[1], color[0]
     arr[:, :, 3] = 255

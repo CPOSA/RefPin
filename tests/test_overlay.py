@@ -11,11 +11,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt  # noqa: E402
-from PySide6.QtGui import QGuiApplication, QMouseEvent  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
+from PySide6.QtGui import QGuiApplication, QMouseEvent
+from PySide6.QtWidgets import QApplication
 
-from pinref.overlay import (  # noqa: E402
+from pinref.overlay import (
     _qt_capture_rect,
     _ScreenOverlay,
     _to_physical,
@@ -118,7 +118,7 @@ def test_scale_is_derived_per_screen_not_shared():
     monitors = _monitors((0, 0, 2560, 1440), (2560, 0, 1920, 1080))
     screens = [QRect(0, 0, 1280, 720), QRect(1280, 0, 1920, 1080)]
     _, high = _match_monitor(monitors, screens[0], screens)  # 200%
-    _, low = _match_monitor(monitors, screens[1], screens)   # 100%
+    _, low = _match_monitor(monitors, screens[1], screens)  # 100%
     assert abs(high - 2.0) < 0.01, f"200% 那块屏得到 {high}"
     assert abs(low - 1.0) < 0.01, f"100% 那块屏得到 {low}"
 
@@ -186,7 +186,8 @@ def test_mss_origin_rounds_like_qt():
     assert _to_physical(569, 1.4996192424489492) == 853
 
 
-def _right_button(kind, overlay, pos=QPoint(30, 30)):
+def _right_button(kind, overlay, pos=None):
+    pos = pos or QPoint(30, 30)
     buttons = Qt.RightButton if kind == QEvent.MouseButtonPress else Qt.NoButton
     return QMouseEvent(
         kind, QPointF(pos), QPointF(pos), Qt.RightButton, buttons, Qt.NoModifier
