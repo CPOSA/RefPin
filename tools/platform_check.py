@@ -178,6 +178,39 @@ def _best_alignment(a, b, radius=_ALIGN_RADIUS):
     return best[0], best[1], best[2], float(core.std())
 
 
+def _make_pattern(geo):
+    """在指定位置盖一个静态花纹窗口，供抓屏对比使用。
+
+    早先直接抓桌面上随便一块来比，两次抓屏之间只要画面动过（终端在刷输出、
+    光标在闪、视频在播），比较结果就会被推偏，已经造成过两次假阳性：
+    一次是 100/100 那轮主屏平均差 15.9，一次是主副屏互换后误报「截偏 (+4,+1)」，
+    后者用静态花纹复测三次全是 (0,0)、残差 0.0（详见 TEST.md D-012）。
+    自己画一块保证不动的图案，这类干扰就从根上没有了。
+    """
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QColor, QPainter
+    from PySide6.QtWidgets import QWidget
+
+    class Pattern(QWidget):
+        def __init__(self):
+            super().__init__()
+            self.setWindowFlags(
+                Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Window
+            )
+            self.setGeometry(geo)
+
+        def paintEvent(self, _event):
+            painter = QPainter(self)
+            painter.fillRect(self.rect(), QColor(20, 20, 24))
+            # 竖条和横条交叉，保证横竖两个方向都有足够对比度可供对齐
+            for x in range(0, self.width(), 17):
+                painter.fillRect(x, 0, 7, self.height(), QColor(200, (x * 7) % 256, 90))
+            for y in range(0, self.height(), 23):
+                painter.fillRect(0, y, self.width(), 5, QColor((y * 5) % 256, 120, 220))
+
+    return Pattern()
+
+
 def check_capture(app):
     title("4. 抓屏（两个后端对比）")
     import numpy as np
@@ -186,6 +219,8 @@ def check_capture(app):
     from pinref import overlay
     from pinref.imaging import pixmap_to_rgb
 
+    print("  会在每块屏上短暂盖一块彩色花纹，那是抓屏用的静态参照物，属正常。")
+
     original = overlay.CAPTURE_BACKEND
     failures = []
     try:
@@ -193,6 +228,16 @@ def check_capture(app):
             geo = screen.geometry()
             rect = QRect(geo.x() + geo.width() // 3, geo.y() + geo.height() // 3, 320, 240)
             print(f"\n    {screen.name()}  取全局区域 320x240 @({rect.x()},{rect.y()})")
+
+            # 花纹要把取样区完整盖住，四周多留一圈
+            pattern = _make_pattern(
+                QRect(rect.x() - 40, rect.y() - 40, rect.width() + 80, rect.height() + 80)
+            )
+            pattern.show()
+            pattern.raise_()
+            deadline = time.time() + 1.0
+            while time.time() < deadline:  # 等合成器真的把它画上去
+                app.processEvents()
 
             shots = {}
             for backend in ("qt", "mss"):
@@ -217,6 +262,9 @@ def check_capture(app):
                 if not size_ok:
                     failures.append(f"{screen.name()}/{backend} 尺寸")
 
+            pattern.close()
+            app.processEvents()
+
             if len(shots) == 2:
                 a, b = shots["qt"], shots["mss"]
                 side = min(a.shape[0], b.shape[0]), min(a.shape[1], b.shape[1])
@@ -226,7 +274,7 @@ def check_capture(app):
 
                 # 画面接近纯色时，平移到哪儿差别都不大，位移判不出来也不该算失败
                 if contrast < 3.0:
-                    verdict = "画面太平，无法判定对齐（换个有内容的区域再测）"
+                    verdict = "画面太平，无法判定对齐（花纹没盖上？）"
                 elif residual >= contrast * 0.5:
                     # ±radius 内没有一个位移能让两张图对上。此时 argmin 落在哪儿
                     # 纯属偶然，报出来的位移是假的，只能说明偏移超出了搜索范围。
